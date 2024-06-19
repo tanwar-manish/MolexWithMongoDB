@@ -1,0 +1,293 @@
+import requests
+import json
+import time
+import random
+import os
+from time import sleep
+from bs4 import BeautifulSoup
+from lxml import html
+from requests.auth import HTTPProxyAuth
+from requests_html import HTMLSession
+import sys
+from requests.structures import CaseInsensitiveDict
+from datetime import datetime
+import re
+from random import randint
+from scrapfly import ScrapflyClient, ScrapeConfig, ScrapeApiResponse
+import pymongo
+from pymongo import MongoClient
+host = '172.16.34.39'
+port_m = '27017'
+MONGO_USER = "crawler"
+MONGO_PASS = "Cr%40wler%230822"
+client = MongoClient(f"mongodb://{MONGO_USER}:{MONGO_PASS}@{host}:{port_m}/?authMechanism=DEFAULT")
+database_name='blackhawk_live'
+collection_name='airgas_cat_output'
+scrapfly_api_key = "scp-live-3e1b1a21c541451ea7586e949c6dc619"
+scrapflyclient = ScrapflyClient(key=scrapfly_api_key)
+def insert_links_into_mongodb(p_links, catlink, catpath, page):
+    db = client[database_name]
+    collection = db[collection_name]
+    try:
+        # Create a list of documents to insert
+        documents = [{"product_link": "https://www.airgas.com" + str(link),"catlink":catlink,"catpath":catpath,"page":page,"timestamp":datetime.now().strftime("%Y-%m-%d %H:%M:%S"),"status":"pending"} for link in p_links]
+
+        # Insert the links into MongoDB
+        # Insert the links into MongoDB
+        result = collection.insert_many(documents)
+
+        print(f"Successfully inserted {len(result.inserted_ids)} links into MongoDB.")
+    except Exception as e:
+        print(f"Failed to insert links into MongoDB: {e}")
+    # finally:
+    #     # Close the MongoDB connection
+    #     client.close()
+
+
+class Airgas:
+
+    def __init__(self):
+        self.domain = 'https://www.airgas.com/'
+        self.pageResponse = None
+        self.proxy = None
+        self.user = None
+        self.pwd = None
+        self.auth = None
+        self.s = None
+        self.headers = {
+            'authority': 'www.airgas.com',
+            'User-Agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.63 Safari/537.36",
+        }
+        self.proxies_pool = []
+        self.rand_prox = None
+        self.output = "prod_links_airgas_10_04.txt"
+        self.Category_path = None
+        self.retries = 0
+        self.input = None
+        self.cur_page = None
+        self.driver = None
+        self.resume = 0
+        self.resume_input = None
+        self.current_path = os.path.dirname(os.path.abspath(__file__)) + '/'
+        self.attempt = 2
+        self.tree1=None
+        self.Session_limit = randint(4, 6)
+        self.L = self.Session_limit + 1
+
+    def Initiate(self):
+        try:
+
+            with open(self.current_path + "airgas_input_crawl_url.txt", "r") as f:
+                inputs = f.readlines()
+
+            try:
+                with open(self.current_path + 'Resume.txt', 'r', encoding='utf-8') as f:
+                    temp_data = f.readlines()
+                self.resume = inputs.index(temp_data[0]) + 1
+            except Exception as e:
+                self.push_data_to_file(
+                    "Product URL\n")
+                with open(self.current_path + "Resume.txt", "w") as f:
+                    pass
+                self.resume = 0
+                pass
+            i = self.resume
+            for data in inputs[self.resume:]:
+                print('\n-------------------------------{}---------------------------------\n'.format(str(i)), self.L)
+                if data[0] != "#":
+                    self.input = data.replace('\n', '')
+                    # self.input = mpn
+                    self.cur_page = 0
+                    self.retries = 0
+                    print("URL  -", self.input)
+                    Url = self.input
+                    if self.L > self.Session_limit:
+                        resp1 = None
+                        resp2 = None
+                        self.Hitting_url(Url)
+                        self.L += 1
+
+                    with open(self.current_path + 'Resume.txt', 'w') as f:
+                        f.write(data)
+                    i += 1
+        except Exception as e:
+
+            print (e, "Error code 000---")
+            self.push_data_to_PNF(self.input + "\t" + str(e) + "\n")
+
+
+    def Hitting_url(self, url):
+        self.retries=0
+        while self.retries < self.attempt:
+            try:
+                time.sleep(random.randint(1, 5))
+                self.requestUrl = url
+                s = HTMLSession()
+                link = url
+                # link = url + f"&page={i}"
+                headers = CaseInsensitiveDict()
+                headers[
+                    "Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"
+                headers["Accept-Language"] = "en-US,en;q=0.9"
+                headers["Cache-Control"] = "max-age=0"
+                headers["Connection"] = "keep-alive"
+                # headers["$Cookie"] = "customerAccountNumber=undefined; Extranet_AL=u0021Jz8Sk+TBFAFn7WIeZNMQIBtc6RmsIWE1JdJ4QBna2qwulpSD0+KZ1egUvYunXSN6arDjKrbCKBrOQw==; ROUTEID=.node3; JSESSIONID=45E2064D0C1695E7F294B7A560E7A9A7; rxVisitor=16660037936820A24UDMG1K7AM77DFATH59CEDVO8HAJU; mt.v=2.1952470617.1666003793856; _ga=GA1.2.362300090.1666003797; _gid=GA1.2.168156786.1666003797; AMCVS_2240153D565EE5217F000101%40AdobeOrg=1; AMCV_2240153D565EE5217F000101%40AdobeOrg=1176715910%7CMCIDTS%7C19283%7CMCMID%7C58253137790934156443312058281181767504%7CMCAAMLH-1666608596%7C12%7CMCAAMB-1666608596%7CRKhpRz8krg2tLO6pguXWp5olkAcUniQYPHaMWWgdJ3xzPWQmdj0y%7CMCOPTOUT-1666010997s%7CNONE%7CMCAID%7CNONE%7CMCSYNCSOP%7C411-19290%7CvVersion%7C5.4.0; source=; vizid=undefined102022; hyb_user=undefined; _omappvp=eir5grLds68IOd6WECvUjRc7WrI0tyz9FKJfJ0JRle08zF6esW35a4ygeBlQJ2FioO7Ri3gFigLrG8lwZKuyar0rttfBvoOi; _clck=ayv34g|1|f5s|0; web-cart=6d26ae33-c2f4-44ff-a920-30b62bbfd1d3; dtCookie=v_4_srv_3_sn_96E1BE0ADCDA7BE31C4FAA8841F6C248_perc_100000_ol_0_mul_1_app-3Aa35d04a65ae32acc_1_app-3Aa071057d257bd294_1_rcs-3Acss_0; TS01343f34=01b05c75a03f529d9917557ee62c3594ab61b4ff0ff1fc541513ff2b0955145d5643ff4ba26fbf3809cec223518248481ab9e7d04231670c0890fe946c2ede4666a2cfeda4fd430b9afe2db0e88f3d482a33a30c72; s_cc=true; customerAccountNumber=undefined; _lo_uid=108208-1666003857772-2546aa8e630faf62; _lo_v=1; __lotl=https%3A%2F%2Fwww.airgas.com%2Fsitemap_index.xml; om-bsgiujtexoj6exusy9u6=1666003837768; omGlobalInteractionCookie=1666003837768; s_inv=0; s_vnc365=1697539843486%26vn%3D1; s_ivc=true; plp_pdp_counter=0; s_gpv=Safety-Products%3AArea-Protection%3ALockout-%26-Tagout%3Acategory; s_sq=%5B%5BB%5D%5D; _lorid=108208-1666003857772-a11583ce8a73e490; dtSa=-; cto_bundle=cncnFF9wJTJGaWNIYWkyd1pCWFklMkY0SWhEeDR5bk4lMkZSbUcwVVRSSjA1TzFWdjAzN3VndjdhTkRyMU5OSE1WN3IyRWdtTTVKZnVTUXhEQkdKd0JHc1VEMTZpbWdVZkJlJTJCZEIwRllsa1lvc1lDcVBWNUJlaiUyQnV1bVN2dFFFY0hreVFmZ0pPRGUlMkIlMkZFYjdyaWl0QXZtZE5wdzZBcjhhQSUzRCUzRA; _omappvs=1666005326265; _uetsid=71bd9d804e0911ed8c04b5106b4533e2; _uetvid=71be16204e0911eda8e5c77fecc41671; s_tslv=1666005330973; counter_cook=10; s_plt=10.72; s_pltp=Safety-Products%3AArea-Protection%3ALockout-%26-Tagout%3Acategory; dtPC=3$405324552_872h-vCRLRNQFKEOGTKOHLRMHGOPSJNPAWDRFH-0e0; TS0152c3fb=01b05c75a00315cc4f682f7cc1b62a15e979d55855e38d727a06cdc69262e3f9c03e57f31b2d91bc515693218fb80716fde6735db52ea79d941b5226fd57e850ae8df08c6cef2bb58c8674cbc6232a57ab709a65e1017a5ce79c392a00dd247fdad24a8e87c905dca1582e1ce2a6291cff57256bde1b2c2978a09b8e9d2d7ca73b92aa6f5adcf3140a4952e44e5cc1e3cde96bd8ec; TS1f280654027=085346f531ab200055d108caad55346d095ec41b91608ea0e02d58f9edbb4fe1e467d8f442108362081b5078d1113000fdb579ddb54d63f99446c5c9f2164171dace406111b715c787dc6039bf3025c387f5c320421ab164b8ee0554afa29b7b; dtLatC=206; rxvt=1666007517309|1666003793690"
+                headers["Sec-Fetch-Dest"] = "document"
+                headers["Sec-Fetch-Mode"] = "navigate"
+                headers["Sec-Fetch-Site"] = "none"
+                headers["Sec-Fetch-User"] = "?1"
+                headers["Upgrade-Insecure-Requests"] = "1"
+                print('Hitting Url main', link)
+                # import pdb;pdb.set_trace()
+
+                # response = s.get(link, timeout=30, headers=headers, verify=False)
+                response = scrapflyclient.scrape(ScrapeConfig(
+                                                                asp=True,
+                                                                render_js=True,
+                                                                wait_for_selector='//a[@class="tab-item" and @data-tab-name="Products"]',
+                                                                url=link
+                                                            ))
+                print(response.status_code)
+                # response.html.render()
+                sleep(randint(2, 5))
+                result_count = ''
+                page = ''
+                with open('sample_cache.html', 'w') as cache_data:
+                    cache_data.write('%s\n' % response.content)
+                if response.status_code == 200:
+                    tree = html.fromstring(response.content)
+                    products_tab = tree.xpath('//a[@class="tab-item" and @data-tab-name="Products"]')
+                    # catpath = '>'.join([x.strip() for x in tree.xpath('//div[@id="breadcrumb"]//text()') if len(x.strip())>0 and x.strip()!='/'])
+                    if products_tab:
+                        result_count = products_tab[0].find('.//span[@class="tab-results-count"]').text
+                        print(f"Result count for Products: {result_count}")
+                    else:
+                        print("Products tab not found in the response.")
+                    last_page_text = ''
+                    next_link =''
+                    try:
+                        next_link = tree.xpath('//a[@rel="next"]')
+                        last_page_text = next_link[0].attrib.get('href', '').split('page=')[-1]
+                        print("last_page_text",last_page_text)
+                        page = int(last_page_text)
+                    except:
+                        pass
+                    if next_link:
+                        if last_page_text.isdigit():
+                            last_page_number = int(last_page_text)+1
+                            print("last_page_number",last_page_number)
+                            substring_to_check = "relevance"
+                            for i in range(1,last_page_number):
+                                print("in for loop")
+                                # if substring_to_check in url:
+                                pagelink = url + f"&page={i}"
+                                # else:
+                                    # pagelink = url + f"?q=%3Arelevance&page={i}"
+                                headers = CaseInsensitiveDict()
+                                headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"
+                                headers["Accept-Language"] = "en-US,en;q=0.9"
+                                headers["Cache-Control"] = "max-age=0"
+                                headers["Connection"] = "keep-alive"
+                                # headers["$Cookie"] = "customerAccountNumber=undefined; Extranet_AL=u0021Jz8Sk+TBFAFn7WIeZNMQIBtc6RmsIWE1JdJ4QBna2qwulpSD0+KZ1egUvYunXSN6arDjKrbCKBrOQw==; ROUTEID=.node3; JSESSIONID=45E2064D0C1695E7F294B7A560E7A9A7; rxVisitor=16660037936820A24UDMG1K7AM77DFATH59CEDVO8HAJU; mt.v=2.1952470617.1666003793856; _ga=GA1.2.362300090.1666003797; _gid=GA1.2.168156786.1666003797; AMCVS_2240153D565EE5217F000101%40AdobeOrg=1; AMCV_2240153D565EE5217F000101%40AdobeOrg=1176715910%7CMCIDTS%7C19283%7CMCMID%7C58253137790934156443312058281181767504%7CMCAAMLH-1666608596%7C12%7CMCAAMB-1666608596%7CRKhpRz8krg2tLO6pguXWp5olkAcUniQYPHaMWWgdJ3xzPWQmdj0y%7CMCOPTOUT-1666010997s%7CNONE%7CMCAID%7CNONE%7CMCSYNCSOP%7C411-19290%7CvVersion%7C5.4.0; source=; vizid=undefined102022; hyb_user=undefined; _omappvp=eir5grLds68IOd6WECvUjRc7WrI0tyz9FKJfJ0JRle08zF6esW35a4ygeBlQJ2FioO7Ri3gFigLrG8lwZKuyar0rttfBvoOi; _clck=ayv34g|1|f5s|0; web-cart=6d26ae33-c2f4-44ff-a920-30b62bbfd1d3; dtCookie=v_4_srv_3_sn_96E1BE0ADCDA7BE31C4FAA8841F6C248_perc_100000_ol_0_mul_1_app-3Aa35d04a65ae32acc_1_app-3Aa071057d257bd294_1_rcs-3Acss_0; TS01343f34=01b05c75a03f529d9917557ee62c3594ab61b4ff0ff1fc541513ff2b0955145d5643ff4ba26fbf3809cec223518248481ab9e7d04231670c0890fe946c2ede4666a2cfeda4fd430b9afe2db0e88f3d482a33a30c72; s_cc=true; customerAccountNumber=undefined; _lo_uid=108208-1666003857772-2546aa8e630faf62; _lo_v=1; __lotl=https%3A%2F%2Fwww.airgas.com%2Fsitemap_index.xml; om-bsgiujtexoj6exusy9u6=1666003837768; omGlobalInteractionCookie=1666003837768; s_inv=0; s_vnc365=1697539843486%26vn%3D1; s_ivc=true; plp_pdp_counter=0; s_gpv=Safety-Products%3AArea-Protection%3ALockout-%26-Tagout%3Acategory; s_sq=%5B%5BB%5D%5D; _lorid=108208-1666003857772-a11583ce8a73e490; dtSa=-; cto_bundle=cncnFF9wJTJGaWNIYWkyd1pCWFklMkY0SWhEeDR5bk4lMkZSbUcwVVRSSjA1TzFWdjAzN3VndjdhTkRyMU5OSE1WN3IyRWdtTTVKZnVTUXhEQkdKd0JHc1VEMTZpbWdVZkJlJTJCZEIwRllsa1lvc1lDcVBWNUJlaiUyQnV1bVN2dFFFY0hreVFmZ0pPRGUlMkIlMkZFYjdyaWl0QXZtZE5wdzZBcjhhQSUzRCUzRA; _omappvs=1666005326265; _uetsid=71bd9d804e0911ed8c04b5106b4533e2; _uetvid=71be16204e0911eda8e5c77fecc41671; s_tslv=1666005330973; counter_cook=10; s_plt=10.72; s_pltp=Safety-Products%3AArea-Protection%3ALockout-%26-Tagout%3Acategory; dtPC=3$405324552_872h-vCRLRNQFKEOGTKOHLRMHGOPSJNPAWDRFH-0e0; TS0152c3fb=01b05c75a00315cc4f682f7cc1b62a15e979d55855e38d727a06cdc69262e3f9c03e57f31b2d91bc515693218fb80716fde6735db52ea79d941b5226fd57e850ae8df08c6cef2bb58c8674cbc6232a57ab709a65e1017a5ce79c392a00dd247fdad24a8e87c905dca1582e1ce2a6291cff57256bde1b2c2978a09b8e9d2d7ca73b92aa6f5adcf3140a4952e44e5cc1e3cde96bd8ec; TS1f280654027=085346f531ab200055d108caad55346d095ec41b91608ea0e02d58f9edbb4fe1e467d8f442108362081b5078d1113000fdb579ddb54d63f99446c5c9f2164171dace406111b715c787dc6039bf3025c387f5c320421ab164b8ee0554afa29b7b; dtLatC=206; rxvt=1666007517309|1666003793690"
+                                headers["Sec-Fetch-Dest"] = "document"
+                                headers["Sec-Fetch-Mode"] = "navigate"
+                                headers["Sec-Fetch-Site"] = "none"
+                                headers["Sec-Fetch-User"] = "?1"
+                                headers["Upgrade-Insecure-Requests"] = "1"
+                                print('Hitting Url-page',pagelink)
+                                # response2 = s.get(pagelink, timeout=30, headers=headers)#Add scrapfly here
+                                response2 = scrapflyclient.scrape(ScrapeConfig(
+                                                                asp=True,
+                                                                render_js=True,
+                                                                wait_for_selector='//div[@class="description-group mobile-hide"]//a[@class="adobe-link-track product-desc"]//@href',
+                                                                url=pagelink
+                                                            ))
+                                print("status code page ",response2.status_code)
+                                sleep(randint(2, 5))
+                                # print("res", response.content)
+                                if response2.status_code == 200:
+                                    tree = html.fromstring(response2.content)
+                                    p_links = tree.xpath('//div[@class="description-group mobile-hide"]//a[@class="adobe-link-track product-desc"]//@href')
+                                    catpath = '>'.join([x.strip() for x in tree.xpath('//div[@id="breadcrumb"]//text()') if len(x.strip())>0 and x.strip()!='/'])
+                                    if p_links:
+                                        insert_links_into_mongodb(p_links,pagelink, catpath, i)
+                                        for j in p_links:
+                                            p_link = "https://www.airgas.com" + str(j)
+                                            self.Parser(p_link)
+                                    else:
+                                        break
+                                else:
+                                    pass
+                            break
+                    else:
+                        print("no page found")
+                        if response.status_code == 200:
+                            tree = html.fromstring(response.content)
+                            catpath = '>'.join([x.strip() for x in tree.xpath('//div[@id="breadcrumb"]//text()') if len(x.strip())>0 and x.strip()!='/'])
+                            p_links = tree.xpath(
+                                '//div[@class="description-group mobile-hide"]//a[@class="adobe-link-track product-desc"]//@href')
+                            if p_links:
+                                insert_links_into_mongodb(p_links, link, catpath, 1)
+                                for j in p_links:
+                                    p_link = "https://www.airgas.com" + str(j)
+                                    self.Parser(p_link)
+                            else:
+                                break
+                        break
+                else:
+                    self.retries += 1
+                    if self.retries >= self.attempt:
+                        print("---Failed to Connect after max retries---")
+                        self.push_data_to_PNF("\tFailed to Connect after max retries")
+                        break
+                    else:
+                        print('Bad Response - Retrying:', self.retries)
+                        continue
+
+
+            except Exception as e:
+                self.retries += 1
+                if self.retries >= self.attempt:
+                    print("---Failed to Connect after max retries---")
+                    self.push_data_to_PNF("\t" + str(e))
+                    break
+                else:
+                    print('Bad Response - Retrying:', self.retries)
+
+
+
+    def Parser(self, link):
+
+        try:
+            self.push_data_to_file(link + '\n')
+            print('---- Data Inserted ---')
+
+        except Exception as e:
+            print ('---- Parsing error ---', e)
+            self.push_data_to_log(link + '\t' + str(e) + '\n')
+
+
+    def push_data_to_file(self, data):
+        with open(self.current_path+self.output, "a", encoding='utf-8') as f:
+            f.write(data)
+
+    def push_data_to_PNF(self, data):
+        with open(self.current_path+"PNF.txt", "a", encoding='utf-8') as f:
+            f.write(data)
+        # self.logout = 35
+
+    def push_data_to_log(self, data):
+        with open(self.current_path+"log.txt", "a", encoding='utf-8') as f:
+            f.write(data)
+
+    def push_data_to_html(self, data):
+        with open(self.current_path+"Cache.html", "w", encoding='utf-8') as f:
+            f.write(data)
+
+a = Airgas()
+a.Initiate()
+#
+# with open(a.output) as result:
+#     uniquelines = set(result.readlines())
+#     with open(a.output,'w') as rmdup:
+#         rmdup.writelines(set(uniquelines))
