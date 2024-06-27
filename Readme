@@ -1,1 +1,23 @@
-readme
+url = 'https://www.pedidosya.cl/restaurantes/santiago/mcdonalds-vespucio-exterior-172eb82b-b94e-4f80-80b4-d2e56ace55c5-menu?search=McDonald%27s'
+api_response = requests.post(
+    "https://api.zyte.com/v1/extract",
+    auth=("0892502c7ada4999a96560c8b1ab62ef", ""),
+    json={
+        "url": f"{url}",
+        "browserHtml": True,
+        "actions": [
+            {
+                "action": "evaluate",
+                "source": "return dataLayer.find(obj => obj.event === \"shop_details.loaded\");",
+            }
+        ],
+        "networkCapture": [
+            {
+                "filterType": "url",
+                "httpResponseBody": True,
+                "value": "https://www.pedidosya.cl/v2/niles/partners/",
+                "matchType": "contains",
+            },
+        ],
+    },
+)
