@@ -1,0 +1,82 @@
+def Hitting_url(self, url, Main, GET):
+        self.retries = 0
+        while True:
+            try:
+
+                print("Hitting Url :", url)
+                # url = 'https://www.airgas.com/product/Wielding-Products/Welders-%26-Accessories/Machine-%26-Fixture-Repair-Parts/p/MIL237842'
+                # if self.L > self.Session_limit:
+                #     rnd = random.randint(1, len(self.proxies_pool) - 1)
+                #     self.rand_prox = self.proxies_pool[rnd]
+                #     prox = self.rand_prox.split(":")
+                #     self.proxy = {"https": 'https://' + prox[2] + ":" + prox[3] + "@" + prox[0] + ":" + prox[1],
+                #                   "http": 'http://' + prox[2] + ":" + prox[3] + "@" + prox[0] + ":" + prox[1]}
+                #     self.auth = HTTPProxyAuth(prox[2], prox[3])
+                #
+                # print("Proxy used  --{}".format(self.rand_prox))
+                # time.sleep(randint(1, 3))
+
+
+                # response = requests.get(url,timeout=30, proxies=self.proxy, headers=self.headers)
+                response = requests.get(url,timeout=30, headers=self.headers)
+                print('Response -', response.status_code)
+                # print(response.text)
+                if not Main:
+                    if response.status_code == 200 and 'class="airgas-part-number"' in response.text:
+                        tree = html.fromstring(response.text)
+                        #tree = html.fromstring(page_source.encode('utf-8'))
+
+                        sku_ = tree.xpath('//p[@class="airgas-part-number"]//em//text()')
+                        sku = sku_[0].replace('MPN: ','')
+                        print('sku_number------->', sku)
+                        self.push_data_to_html(response.text, sku, response.status_code)
+                        self.Parser(response,url)
+
+                        break
+                    else:
+                        if 'NAME="ROBOTS"' in response.text:
+                            self.L = self.Session_limit + 1
+                        self.retries += 1
+                        if self.retries > self.attempt:
+                            sku = url.split('/p/')[-1]
+                            self.push_data_to_html(response.text, sku, response.status_code)
+                            print("----BAD RESPONSE :", response.status_code, "#Passing to next Url")
+                            self.push_data_to_PNF(self.input + '\t----BAD RESPONSE ' + str(response.status_code) + "\n")
+                            break
+                        else:
+                            sku = url.split('/p/')[-1]
+                            print("Failed to Hit Retrying :", self.retries)
+                            self.push_data_to_html(response.text, sku, response.status_code)
+                            continue
+
+                else:
+                    if response.status_code == 200:
+                        sku = url.split('/p/')[-1]
+                        self.push_data_to_html(response.text, sku, response.status_code)
+                        return response
+
+                    else:
+
+                        self.retries += 1
+                        if self.retries > self.attempt:
+                            sku = url.split('/p/')[-1]
+                            self.push_data_to_html(response.text, sku, response.status_code)
+                            print("----BAD RESPONSE :", response.status_code, "#Passing to next Url")
+                            self.push_data_to_PNF(self.input + '\t----BAD RESPONSE ' + str(response.status_code) + "\n")
+                            break
+                        else:
+                            print("Failed to Hit Retrying :", self.retries)
+                            sku = url.split('/p/')[-1]
+                            self.push_data_to_html(response.text, sku, response.status_code)
+                            continue
+            except Exception as e:
+                self.retries += 1
+                if self.retries < self.attempt:
+                    print('Bad Response - Retrying:', self.retries)
+                    continue
+                else:
+                    print(
+                        "---Failed to Connect after max retries--- \n Error -> {} :----: Exiting with code 001".format(
+                            e))
+                    self.push_data_to_PNF(self.input + "\t" + str(e) + "\n")
+                    break
